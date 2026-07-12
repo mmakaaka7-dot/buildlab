@@ -1650,7 +1650,327 @@ app.get(
     });
   }
 );
+/* =========================================================
+   BROWSER CONVERSATION INBOX
+========================================================= */
 
+function escapeHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+app.get('/inbox', (req, res) => {
+  if (
+    !ADMIN_KEY ||
+    req.query.key !== ADMIN_KEY
+  ) {
+    return res
+      .status(401)
+      .send('Unauthorized');
+  }
+
+  /*
+   * Group messages by customer phone number.
+   */
+  const conversations = {};
+
+  for (const message of [...recentMessages].reverse()) {
+    const phone =
+      message.phone || 'Unknown';
+
+    if (!conversations[phone]) {
+      conversations[phone] = {
+        phone,
+        customerName:
+          message.customerName ||
+          'WhatsApp customer',
+        messages: []
+      };
+    }
+
+    if (
+      message.customerName &&
+      message.direction === 'incoming'
+    ) {
+      conversations[phone].customerName =
+        message.customerName;
+    }
+
+    conversations[phone].messages.push(message);
+  }
+
+  const conversationCards =
+    Object.values(conversations)
+      .reverse()
+      .map(conversation => {
+        const messagesHtml =
+          conversation.messages
+            .map(message => {
+              const messageClass =
+                message.direction === 'outgoing'
+                  ? 'outgoing'
+                  : 'incoming';
+
+              const sender =
+                message.direction === 'outgoing'
+                  ? 'BuildLab'
+                  : conversation.customerName;
+
+              const safeText =
+                escapeHtml(message.text)
+                  .replace(/\n/g, '<br>');
+
+              const time =
+                message.recordedAt
+                  ? new Date(
+                      message.recordedAt
+                    ).toLocaleString()
+                  : '';
+
+              return `
+                <div class="message-row ${messageClass}">
+                  <div class="message-bubble">
+                    <div class="sender">
+                      ${escapeHtml(sender)}
+                    </div>
+
+                    <div class="message-text">
+                      ${safeText}
+                    </div>
+
+                    <div class="message-time">
+                      ${escapeHtml(time)}
+                    </div>
+                  </div>
+                </div>
+              `;
+            })
+            .join('');
+
+        return `
+          <section class="conversation">
+            <div class="conversation-header">
+              <div>
+                <strong>
+                  ${escapeHtml(
+                    conversation.customerName
+                  )}
+                </strong>
+
+                <div class="phone">
+                  ${escapeHtml(
+                    conversation.phone
+                  )}
+                </div>
+              </div>
+
+              <div class="message-count">
+                ${conversation.messages.length}
+                messages
+              </div>
+            </div>
+
+            <div class="messages">
+              ${messagesHtml}
+            </div>
+          </section>
+        `;
+      })
+      .join('');
+
+  res.type('html').send(`
+    <!doctype html>
+
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
+
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1"
+        >
+
+        <meta
+          http-equiv="refresh"
+          content="10"
+        >
+
+        <title>
+          BuildLab WhatsApp Inbox
+        </title>
+
+        <style>
+          * {
+            box-sizing: border-box;
+          }
+
+          body {
+            margin: 0;
+            padding: 24px;
+            background: #eef3f7;
+            color: #172033;
+            font-family:
+              Arial,
+              Helvetica,
+              sans-serif;
+          }
+
+          .page {
+            max-width: 950px;
+            margin: 0 auto;
+          }
+
+          .page-header {
+            margin-bottom: 24px;
+          }
+
+          .page-header h1 {
+            margin: 0 0 8px;
+          }
+
+          .page-header p {
+            margin: 0;
+            color: #657084;
+          }
+
+          .conversation {
+            margin-bottom: 24px;
+            overflow: hidden;
+            background: white;
+            border-radius: 16px;
+            box-shadow:
+              0 4px 18px
+              rgba(0, 0, 0, 0.08);
+          }
+
+          .conversation-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            padding: 16px 20px;
+            background: #13233a;
+            color: white;
+          }
+
+          .phone {
+            margin-top: 4px;
+            color: #c7d2df;
+            font-size: 13px;
+          }
+
+          .message-count {
+            color: #c7d2df;
+            font-size: 13px;
+          }
+
+          .messages {
+            max-height: 550px;
+            overflow-y: auto;
+            padding: 18px;
+            background: #efeae2;
+          }
+
+          .message-row {
+            display: flex;
+            margin-bottom: 10px;
+          }
+
+          .message-row.incoming {
+            justify-content: flex-start;
+          }
+
+          .message-row.outgoing {
+            justify-content: flex-end;
+          }
+
+          .message-bubble {
+            max-width: 75%;
+            padding: 10px 12px;
+            border-radius: 12px;
+            box-shadow:
+              0 1px 3px
+              rgba(0, 0, 0, 0.12);
+          }
+
+          .incoming .message-bubble {
+            background: white;
+            border-top-left-radius: 3px;
+          }
+
+          .outgoing .message-bubble {
+            background: #d9fdd3;
+            border-top-right-radius: 3px;
+          }
+
+          .sender {
+            margin-bottom: 5px;
+            color: #087c91;
+            font-size: 12px;
+            font-weight: bold;
+          }
+
+          .message-text {
+            line-height: 1.45;
+            word-break: break-word;
+          }
+
+          .message-time {
+            margin-top: 6px;
+            text-align: right;
+            color: #6f7885;
+            font-size: 10px;
+          }
+
+          .empty {
+            padding: 40px;
+            text-align: center;
+            background: white;
+            border-radius: 14px;
+          }
+
+          @media (max-width: 600px) {
+            body {
+              padding: 10px;
+            }
+
+            .message-bubble {
+              max-width: 88%;
+            }
+          }
+        </style>
+      </head>
+
+      <body>
+        <main class="page">
+          <header class="page-header">
+            <h1>
+              BuildLab Zambia WhatsApp Inbox
+            </h1>
+
+            <p>
+              Automatically refreshes every 10 seconds.
+            </p>
+          </header>
+
+          ${
+            conversationCards ||
+            `
+              <div class="empty">
+                No conversations received since
+                the latest Render restart.
+              </div>
+            `
+          }
+        </main>
+      </body>
+    </html>
+  `);
+});
 /* =========================================================
    ERROR HANDLER
 ========================================================= */
